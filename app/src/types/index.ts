@@ -60,7 +60,7 @@ export interface PlantDetail {
   dieback_start_md: string | null
   regrowth_start_md: string | null
   attracts: string[] | null
-  wildlife_value: string[] | null
+  wildlife_value: string | null
   ecological_tags: string[] | null
   plant_common_names: { name: string; is_primary: boolean }[]
 }

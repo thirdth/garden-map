@@ -291,7 +291,7 @@ export function PlantDetailPanel({ plantId, planting, onUpdatePlanting, onRemove
             {((plant.attracts?.length ?? 0) > 0 || (plant.wildlife_value?.length ?? 0) > 0) && (
               <Section title="Wildlife">
                 {(plant.attracts?.length ?? 0) > 0 && <Row label="Attracts"><Tags values={plant.attracts} /></Row>}
-                {(plant.wildlife_value?.length ?? 0) > 0 && <Row label="Value"><Tags values={plant.wildlife_value} /></Row>}
+                {plant.wildlife_value && <Row label="Value"><span className="text-xs text-stone-700">{plant.wildlife_value}</span></Row>}
               </Section>
             )}
 

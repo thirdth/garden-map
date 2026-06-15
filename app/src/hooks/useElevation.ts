@@ -12,6 +12,7 @@ export function useElevation(yardId: string) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!yardId) { setLoading(false); return }
     setLoading(true)
     supabase
       .from('grid_cells')
