@@ -68,5 +68,10 @@ export function usePlantings(yardId: string) {
     setPlantings(prev => prev.filter(p => p.id !== plantingId))
   }
 
-  return { plantings, addPlanting, removePlanting }
+  async function updatePlanting(plantingId: string, fields: { planted_date?: string | null; custom_label?: string | null; notes?: string | null }) {
+    const { error } = await supabase.from('plantings').update(fields).eq('id', plantingId)
+    if (!error) setPlantings(prev => prev.map(p => p.id === plantingId ? { ...p, ...fields } : p))
+  }
+
+  return { plantings, addPlanting, removePlanting, updatePlanting }
 }
