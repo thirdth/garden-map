@@ -90,7 +90,7 @@ export function GardenApp({ session }: Props) {
   const [structureMode, setStructureMode] = useState(false)
   const [structureShape, setStructureShape] = useState<'rectangle' | 'polygon' | 'polyline' | 'point'>('rectangle')
   const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
-  const { structures, loading: structuresLoading, createStructure, updateStructure, deleteStructure } = useStructures(currentYard?.id ?? '')
+  const { structures, createStructure, updateStructure, deleteStructure } = useStructures(currentYard?.id ?? '')
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">

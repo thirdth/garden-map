@@ -258,7 +258,7 @@ export function YardGrid({
     // dragging vertex
     if (draggingVertex) {
       if (!cell || !draftStructures) return
-      setDraftStructures(prev => prev?.map(s => {
+      setDraftStructures(prev => prev ? prev.map(s => {
         if (s.id !== draggingVertex.structureId) return s
         const g: any = s.geometry
         if (g.shape === 'polygon' || g.shape === 'polyline') {
@@ -266,7 +266,7 @@ export function YardGrid({
           return { ...s, geometry: { ...g, points: pts } }
         }
         return s
-      }))
+      }) : null)
       return
     }
     // dragging structure
@@ -274,7 +274,7 @@ export function YardGrid({
       if (!cell || !dragOrigin.current || !origAnchor.current) return
       const dr = cell.row - dragOrigin.current.row
       const dc = cell.col - dragOrigin.current.col
-      setDraftStructures(prev => prev?.map(s => {
+      setDraftStructures(prev => prev ? prev.map(s => {
         if (s.id !== selectedStructureId) return s
         const g: any = s.geometry
         if (g.shape === 'rectangle') {
@@ -282,7 +282,7 @@ export function YardGrid({
           return { ...s, geometry: newGeom }
         }
         return s
-      }))
+      }) : null)
       return
     }
     if (!isPainting || !paintOverlay) return

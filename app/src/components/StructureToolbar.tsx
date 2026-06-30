@@ -1,9 +1,9 @@
-import { MousePointerClick, Square, Triangle, Line, MapPin } from 'lucide-react'
+import { MousePointerClick, Square, Triangle, Minus, MapPin } from 'lucide-react'
 
 const shapes = [
   { value: 'rectangle', label: 'Rectangle', icon: Square },
   { value: 'polygon', label: 'Polygon', icon: Triangle },
-  { value: 'polyline', label: 'Polyline', icon: Line },
+  { value: 'polyline', label: 'Polyline', icon: Minus },
   { value: 'point', label: 'Point', icon: MapPin },
 ] as const
 

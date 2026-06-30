@@ -28,13 +28,17 @@ export function useStructures(yardId: string) {
 
   async function createStructure(payload: Partial<Structure>) {
     const result = await createStructureRaw(payload)
-    if (result.data) setStructures(prev => [...prev, result.data])
+    if (result.data) {
+      setStructures(prev => [...prev, result.data as Structure])
+    }
     return result
   }
 
   async function updateStructure(id: string, updates: Partial<Structure>) {
     const result = await updateStructureRaw(id, updates)
-    if (result.data) setStructures(prev => prev.map(s => s.id === id ? result.data as Structure : s))
+    if (result.data) {
+      setStructures(prev => prev.map(s => s.id === id ? result.data as Structure : s))
+    }
     return result
   }
 
