@@ -88,9 +88,16 @@ export function subscribeToStructures(yard_id: string, cb: (event: string, paylo
     .on('postgres_changes', { event: '*', schema: 'public', table: 'structures', filter: `yard_id=eq.${yard_id}` }, (payload: any) => {
       const ev = payload.eventType ?? payload.type ?? payload.action ?? null
       if (!ev) return
-      if (ev === 'INSERT') cb('INSERT', payload.new)
-      else if (ev === 'UPDATE') cb('UPDATE', payload.new)
-      else if (ev === 'DELETE') cb('DELETE', payload.old)
+      try {
+        if (ev === 'INSERT') cb('INSERT', fromDbShape(payload.new))
+        else if (ev === 'UPDATE') cb('UPDATE', fromDbShape(payload.new))
+        else if (ev === 'DELETE') cb('DELETE', fromDbShape(payload.old))
+      } catch (err) {
+        // fallback to raw payload
+        if (ev === 'INSERT') cb('INSERT', payload.new)
+        else if (ev === 'UPDATE') cb('UPDATE', payload.new)
+        else if (ev === 'DELETE') cb('DELETE', payload.old)
+      }
     })
     .subscribe()
 
