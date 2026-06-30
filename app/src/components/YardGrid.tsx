@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react'
 import type { Structure, RectangleGeometry } from '../types'
-import { fetchStructuresForYard, createStructure, subscribeToStructures } from '../lib/structures'
+import { fetchStructuresForYard, createStructure, subscribeToStructures, updateStructure, deleteStructure } from '../lib/structures'
 import { Yard, ShadeMap, ShadeValue, Planting } from '../types'
 import { ElevationMap, cellKey } from '../hooks/useElevation'
 import { WaterFlowMap, WaterFlowDir } from '../hooks/useWaterFlow'
@@ -93,6 +93,10 @@ export function YardGrid({
   const [isDrawingStructure, setIsDrawingStructure] = useState(false)
   const drawStart = useRef<{ row: number; col: number } | null>(null)
   const [drawCurrent, setDrawCurrent] = useState<{ row: number; col: number } | null>(null)
+  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
+  const [isDraggingStructure, setIsDraggingStructure] = useState(false)
+  const dragOrigin = useRef<{ row: number; col: number } | null>(null)
+  const origAnchor = useRef<{ row: number; col: number } | null>(null)
 
   const ftCells = 12 / cellIn
   const colLabels: number[] = []
@@ -112,12 +116,9 @@ export function YardGrid({
   }
 
   function handleMouseDown(e: React.MouseEvent) {
+    const cell = getCellFromEvent(e)
     // Structure drawing mode takes precedence
-    if ((arguments[0] as any)?.currentTarget && (e as any) && (e as any).nativeEvent && (e as any)) {}
-    // Note: parent component toggles `structureMode` prop to enable drawing
-    // We get structureMode from props via closure
     if (structureMode) {
-      const cell = getCellFromEvent(e)
       if (cell) {
         setIsDrawingStructure(true)
         drawStart.current = cell
@@ -125,14 +126,36 @@ export function YardGrid({
       }
       return
     }
+    // Hit-test structures: select and start drag
+    if (cell) {
+      const hit = structures.find(s => {
+        const g: any = s.geometry
+        if (g.shape === 'rectangle') {
+          const top = g.anchor.row
+          const left = g.anchor.col
+          const bottom = top + g.height - 1
+          const right = left + g.width - 1
+          return cell.row >= top && cell.row <= bottom && cell.col >= left && cell.col <= right
+        }
+        return false
+      })
+      if (hit) {
+        setSelectedStructureId(hit.id)
+        setIsDraggingStructure(true)
+        dragOrigin.current = cell
+        const g: any = hit.geometry
+        origAnchor.current = { row: g.anchor.row, col: g.anchor.col }
+        return
+      } else {
+        setSelectedStructureId(null)
+      }
+    }
     if (placingPlant) {
-      const cell = getCellFromEvent(e)
       if (cell) onPlantCell(cell.row, cell.col)
       return
     }
     // Click an existing planting to select it
     if (!paintOverlay && showPlants) {
-      const cell = getCellFromEvent(e)
       if (cell) {
         const hit = plantings.find(p => p.anchor_row === cell.row && p.anchor_col === cell.col)
         if (hit) { onPlantingClick(hit); return }
@@ -142,7 +165,6 @@ export function YardGrid({
     e.preventDefault()
     setIsPainting(true)
     lastPainted.current = null
-    const cell = getCellFromEvent(e)
     if (cell) {
       lastPainted.current = cellKey(cell.row, cell.col)
       onPaintCell(cell.row, cell.col)
@@ -150,15 +172,30 @@ export function YardGrid({
   }
 
   function handleMouseMove(e: React.MouseEvent) {
-    // Structure drawing
+    const cell = getCellFromEvent(e)
+    // Structure drawing preview
     if (structureMode && isDrawingStructure) {
-      const cell = getCellFromEvent(e)
       if (!cell) return
       setDrawCurrent(cell)
       return
     }
+    // dragging structure
+    if (isDraggingStructure) {
+      if (!cell || !dragOrigin.current || !origAnchor.current) return
+      const dr = cell.row - dragOrigin.current.row
+      const dc = cell.col - dragOrigin.current.col
+      setStructures(prev => prev.map(s => {
+        if (s.id !== selectedStructureId) return s
+        const g: any = s.geometry
+        if (g.shape === 'rectangle') {
+          const newGeom = { ...g, anchor: { row: origAnchor.current!.row + dr, col: origAnchor.current!.col + dc } }
+          return { ...s, geometry: newGeom }
+        }
+        return s
+      }))
+      return
+    }
     if (!isPainting || !paintOverlay) return
-    const cell = getCellFromEvent(e)
     if (!cell) return
     const key = cellKey(cell.row, cell.col)
     if (key === lastPainted.current) return
@@ -189,6 +226,16 @@ export function YardGrid({
       }
       return
     }
+    // finish dragging structure
+    if (isDraggingStructure && selectedStructureId) {
+      setIsDraggingStructure(false)
+      dragOrigin.current = null
+      const s = structures.find(s => s.id === selectedStructureId)
+      if (s) {
+        updateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
+      }
+      return
+    }
     setIsPainting(false)
     lastPainted.current = null
   }
@@ -205,6 +252,21 @@ export function YardGrid({
     })
     return () => { mounted = false; if (sub && (sub as any).unsubscribe) (sub as any).unsubscribe() }
   }, [yard.id])
+
+  // keyboard delete listener
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStructureId) {
+        deleteStructure(selectedStructureId).then(({ error }) => {
+          if (error) console.error('deleteStructure error', error)
+          else setStructures(s => s.filter(x => x.id !== selectedStructureId))
+        })
+        setSelectedStructureId(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedStructureId])
 
   const activePaintValue = paintOverlay === 'elevation' ? paintElevation
     : paintOverlay === 'waterflow' ? paintFlow
@@ -279,9 +341,11 @@ export function YardGrid({
                 const w = geom.width * CELL_PX
                 const h = geom.height * CELL_PX
                 const fill = s.color ?? '#e9e9ff'
+                const isSelected = selectedStructureId === s.id
                 return (
                   <g key={s.id} style={{ pointerEvents: 'none' }}>
-                    <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6} stroke="#6366f1" />
+                    <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6}
+                      stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
                   </g>
                 )
               }
