@@ -41,16 +41,19 @@ export async function deleteStructure(id: string) {
 
 // Basic realtime subscription helper. Returns the subscription object; caller should unsubscribe when done.
 export function subscribeToStructures(yard_id: string, cb: (event: string, payload: any) => void) {
-  // supabase-js types for realtime subscription are a bit strict; cast to any to avoid build errors
-  const anySupabase: any = supabase
-  const sub = anySupabase
-    .from(`structures:yard_id=eq.${yard_id}`)
-    .on('INSERT', (payload: any) => cb('INSERT', payload.new))
-    .on('UPDATE', (payload: any) => cb('UPDATE', payload.new))
-    .on('DELETE', (payload: any) => cb('DELETE', payload.old))
+  // Use realtime channel with postgres_changes for stable browser runtime
+  const channel = supabase
+    .channel(`structures:${yard_id}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'structures', filter: `yard_id=eq.${yard_id}` }, (payload: any) => {
+      const ev = payload.eventType ?? payload.type ?? payload.action ?? null
+      if (!ev) return
+      if (ev === 'INSERT') cb('INSERT', payload.new)
+      else if (ev === 'UPDATE') cb('UPDATE', payload.new)
+      else if (ev === 'DELETE') cb('DELETE', payload.old)
+    })
     .subscribe()
 
-  return sub
+  return channel
 }
 
 export default {
