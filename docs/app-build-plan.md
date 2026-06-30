@@ -477,6 +477,76 @@ Zach's best guesses as of June 2026, used to unblock planning. Treat these as pr
 
 ---
 
+## Manual Test Plan
+
+### Goal
+Validate structure drawing, non-rectangular shape support, and planting overlap behavior in the current app.
+
+### Test scenarios
+
+1. **Rectangle structure creation**
+   - Enter garden view on an existing yard.
+   - Enable `Structure` mode and select `Rectangle`.
+   - Click to start, drag across several cells, and release.
+   - Expected: a new rectangle structure appears on the grid, and the create request succeeds.
+   - Expected: the structure is persisted after refresh.
+
+2. **Polygon structure creation**
+   - Enable `Structure` mode and select `Polygon`.
+   - Click three or more points in the grid.
+   - Double-click the last point to finish.
+   - Expected: a closed polygon appears as a filled shape.
+   - Expected: the structure persists and renders after refresh.
+
+3. **Polyline (path) creation**
+   - Enable `Structure` mode and select `Polyline`.
+   - Click two or more points.
+   - Double-click to finish.
+   - Expected: a polyline appears between the points.
+   - Expected: the path persists after refresh.
+
+4. **Point structure placement**
+   - Enable `Structure` mode and select `Point`.
+   - Click a cell.
+   - Expected: a point structure is placed at that cell.
+   - Expected: it persists after refresh.
+
+5. **Structure selection and vertex editing**
+   - Click an existing polygon or polyline structure.
+   - Expected: the structure becomes selected and vertex handles appear.
+   - Drag a vertex handle to move it.
+   - Expected: the shape updates and the change persists after refresh.
+
+6. **Plant placement on no-overlap structure**
+   - Create a path or point structure with `allowPlantOverlap: none`.
+   - Enable plant placement mode and hover over its covered cells.
+   - Expected: the cursor changes to `not-allowed` and a red blocked indicator appears.
+   - Attempt to click and place a plant.
+   - Expected: plant placement is blocked.
+
+7. **Plant placement outside structures**
+   - Enable plant placement mode and hover over an empty cell not covered by any no-overlap structure.
+   - Expected: the normal plant placement cursor appears.
+   - Click to place a plant.
+   - Expected: the plant is placed successfully.
+
+8. **Realtime update check**
+   - Open the same yard in two browser windows.
+   - Add a structure in one window.
+   - Expected: the structure appears in the other window automatically.
+
+### Edge cases
+
+- Attempt to place a plant exactly on a structure border cell.
+- Attempt to create a polygon with only two points and ensure it does not save until completed.
+- Delete a structure while a plant placement mode is active and verify hover state resets.
+
+### Notes
+
+- The current test plan assumes structure persistence and realtime subscriptions are already functional.
+- If the red blocked indicator does not appear, check `YardGrid.tsx` hover/plant-blocking logic.
+- If the overlap rule is too strict, we can later refine it to support `partial` overlap with warnings instead of a hard block.
+
 ## Open Items
 
 - `years_to_maturity` lookup values (Slow=7, Medium=4, Rapid=2) are placeholders — revisit with domain input
