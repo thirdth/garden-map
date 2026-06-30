@@ -7,7 +7,9 @@ import { useElevation } from '../hooks/useElevation'
 import { useWaterFlow, WaterFlowDir } from '../hooks/useWaterFlow'
 import { useShade } from '../hooks/useShade'
 import { usePlantings } from '../hooks/usePlantings'
+import { useStructures } from '../hooks/useStructures'
 import { CreateYardForm } from './CreateYardForm'
+import { StructureToolbar } from './StructureToolbar'
 import { YardGrid } from './YardGrid'
 import { ElevationPalette } from './ElevationPalette'
 import { WaterFlowPalette } from './WaterFlowPalette'
@@ -87,6 +89,8 @@ export function GardenApp({ session }: Props) {
 
   const [structureMode, setStructureMode] = useState(false)
   const [structureShape, setStructureShape] = useState<'rectangle' | 'polygon' | 'polyline' | 'point'>('rectangle')
+  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
+  const { structures, loading: structuresLoading, createStructure, updateStructure, deleteStructure } = useStructures(currentYard?.id ?? '')
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -177,21 +181,12 @@ export function GardenApp({ session }: Props) {
                     <Sun size={14} /> Shade
                   </button>
 
-                  <button onClick={() => setStructureMode(s => !s)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${structureMode ? 'bg-indigo-50 text-indigo-700 border-indigo-200 ring-2 ring-indigo-300 ring-offset-1' : 'text-stone-500 border-stone-200 hover:bg-stone-50'}`}>
-                    Structure
-                  </button>
-
-                  {structureMode && (
-                    <div className="flex items-center gap-1">
-                      {(['rectangle','polygon','polyline','point'] as const).map(s => (
-                        <button key={s} onClick={() => setStructureShape(s)}
-                          className={`px-2 py-1 rounded text-xs ${structureShape===s ? 'bg-indigo-100 text-indigo-800' : 'text-stone-500 hover:bg-stone-50'}`}>
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <StructureToolbar
+                    enabled={structureMode}
+                    shapeType={structureShape}
+                    onToggle={() => setStructureMode(s => !s)}
+                    onShapeChange={shape => setStructureShape(shape)}
+                  />
 
                   <div className="h-5 w-px bg-stone-200" />
                   <SeasonSlider month={currentMonth} onChange={setCurrentMonth} />
@@ -253,6 +248,12 @@ export function GardenApp({ session }: Props) {
                     shapeType={structureShape}
                     structureMode={structureMode}
                     yard={currentYard}
+                    structures={structures}
+                    selectedStructureId={selectedStructureId}
+                    onSelectStructure={setSelectedStructureId}
+                    onCreateStructure={createStructure}
+                    onUpdateStructure={updateStructure}
+                    onDeleteStructure={deleteStructure}
                     showElevation={showElevation} elevations={elevations} paintElevation={paintElevation}
                     showWaterFlow={showWaterFlow} flowMap={flowMap} paintFlow={paintFlow}
                     showShade={showShade} shadeMap={shadeMap} paintShade={paintShade}

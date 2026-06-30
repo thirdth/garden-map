@@ -1,6 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
 import type { Structure, RectangleGeometry } from '../types'
-import { fetchStructuresForYard, createStructure, subscribeToStructures, updateStructure, deleteStructure } from '../lib/structures'
 import { Yard, ShadeMap, ShadeValue, Planting } from '../types'
 import { ElevationMap, cellKey } from '../hooks/useElevation'
 import { WaterFlowMap, WaterFlowDir } from '../hooks/useWaterFlow'
@@ -8,6 +7,7 @@ import { elevationColor } from '../lib/elevationColor'
 import { SHADE_CONFIG, shadePatternId } from '../lib/shadePatterns'
 import { getPlantIcon, getPlantColors } from '../lib/plantIcons'
 import { plantState, plantStateColor } from '../lib/plantSeasons'
+import { StructureLayer } from './StructureLayer'
 
 const CELL_PX = 18
 
@@ -23,6 +23,12 @@ interface Props {
   yard: Yard
   structureMode?: boolean
   shapeType?: 'rectangle' | 'polygon' | 'polyline' | 'point'
+  structures: Structure[]
+  selectedStructureId: string | null
+  onSelectStructure: (id: string | null) => void
+  onCreateStructure: (payload: Partial<Structure>) => Promise<{ data: Structure | null; error: any }>
+  onUpdateStructure: (id: string, updates: Partial<Structure>) => Promise<{ data: Structure | null; error: any }>
+  onDeleteStructure: (id: string) => Promise<{ data: any; error: any }>
   showElevation: boolean
   elevations: ElevationMap
   paintElevation: number | null
@@ -76,7 +82,9 @@ function footprintRadius(spreadMaxFt: number | null, cellSizeIn: number): number
 }
 
 export function YardGrid({
-  yard, structureMode = false, shapeType = 'rectangle', showElevation, elevations, paintElevation,
+  yard, structureMode = false, shapeType = 'rectangle', structures, selectedStructureId,
+  onSelectStructure, onCreateStructure, onUpdateStructure, onDeleteStructure,
+  showElevation, elevations, paintElevation,
   showWaterFlow, flowMap, paintFlow,
   showShade, shadeMap, paintShade,
   paintOverlay, onPaintCell,
@@ -89,18 +97,18 @@ export function YardGrid({
   const svgRef = useRef<SVGSVGElement>(null)
   const [isPainting, setIsPainting] = useState(false)
   const lastPainted = useRef<string | null>(null)
-  // Structures
-  const [structures, setStructures] = useState<Structure[]>([])
   const [isDrawingStructure, setIsDrawingStructure] = useState(false)
   const drawStart = useRef<{ row: number; col: number } | null>(null)
   const [drawCurrent, setDrawCurrent] = useState<{ row: number; col: number } | null>(null)
   const [isDrawingPolygon, setIsDrawingPolygon] = useState(false)
   const [polygonPoints, setPolygonPoints] = useState<{ row: number; col: number }[] | null>(null)
   const [draggingVertex, setDraggingVertex] = useState<{ structureId: string; pointIndex: number } | null>(null)
-  const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
+  const [draftStructures, setDraftStructures] = useState<Structure[] | null>(null)
   const [isDraggingStructure, setIsDraggingStructure] = useState(false)
   const dragOrigin = useRef<{ row: number; col: number } | null>(null)
   const origAnchor = useRef<{ row: number; col: number } | null>(null)
+
+  const activeStructures = draftStructures ?? structures
 
   const ftCells = 12 / cellIn
   const colLabels: number[] = []
@@ -145,9 +153,8 @@ export function YardGrid({
       }
       if (shape === 'point') {
         const geom: any = { shape: 'point', point: { row: cell.row, col: cell.col } }
-        createStructure({ yard_id: yard.id, type: 'other', name: 'Point', geometry: geom }).then(({ data, error }) => {
+        onCreateStructure({ yard_id: yard.id, type: 'other', name: 'Point', geometry: geom }).then(({ error }) => {
           if (error) console.error('createStructure error', error)
-          else if (data) setStructures(s => [...s, data])
         })
         return
       }
@@ -163,9 +170,8 @@ export function YardGrid({
         if (e.detail === 2) {
           const pts = [...polygonPoints, { row: cell.row, col: cell.col }]
           const geom: any = { shape: shape === 'polygon' ? 'polygon' : 'polyline', points: pts }
-          createStructure({ yard_id: yard.id, type: 'other', name: 'Shape', geometry: geom }).then(({ data, error }) => {
+          onCreateStructure({ yard_id: yard.id, type: 'other', name: 'Shape', geometry: geom }).then(({ error }) => {
             if (error) console.error('createStructure error', error)
-            else if (data) setStructures(s => [...s, data])
           })
           setIsDrawingPolygon(false)
           setPolygonPoints(null)
@@ -199,14 +205,15 @@ export function YardGrid({
         return false
       })
       if (hit) {
-        setSelectedStructureId(hit.id)
+        onSelectStructure(hit.id)
         setIsDraggingStructure(true)
         dragOrigin.current = cell
         const g: any = hit.geometry
         origAnchor.current = { row: g.anchor.row, col: g.anchor.col }
+        setDraftStructures(structures)
         return
       } else {
-        setSelectedStructureId(null)
+        onSelectStructure(null)
       }
     }
     if (placingPlant) {
@@ -240,8 +247,8 @@ export function YardGrid({
     }
     // dragging vertex
     if (draggingVertex) {
-      if (!cell) return
-      setStructures(prev => prev.map(s => {
+      if (!cell || !draftStructures) return
+      setDraftStructures(prev => prev?.map(s => {
         if (s.id !== draggingVertex.structureId) return s
         const g: any = s.geometry
         if (g.shape === 'polygon' || g.shape === 'polyline') {
@@ -257,7 +264,7 @@ export function YardGrid({
       if (!cell || !dragOrigin.current || !origAnchor.current) return
       const dr = cell.row - dragOrigin.current.row
       const dc = cell.col - dragOrigin.current.col
-      setStructures(prev => prev.map(s => {
+      setDraftStructures(prev => prev?.map(s => {
         if (s.id !== selectedStructureId) return s
         const g: any = s.geometry
         if (g.shape === 'rectangle') {
@@ -291,11 +298,8 @@ export function YardGrid({
       const width = Math.abs(end.col - start.col) + 1
       // create a rectangle structure
       const geom: RectangleGeometry = { shape: 'rectangle', anchor: { row: top, col: left }, width, height }
-        createStructure({ yard_id: yard.id, type: 'patio', name: 'New structure', geometry: geom, allowPlantOverlap: 'full' })
-          .then(({ data, error }) => {
-            if (error) console.error('createStructure error', error)
-            else if (data) setStructures(s => [...s, data])
-          })
+        onCreateStructure({ yard_id: yard.id, type: 'patio', name: 'New structure', geometry: geom, allowPlantOverlap: 'full' })
+          .then(({ error }) => { if (error) console.error('createStructure error', error) })
       }
       return
     }
@@ -303,51 +307,39 @@ export function YardGrid({
     if (draggingVertex) {
       const dv = draggingVertex
       setDraggingVertex(null)
-      const s = structures.find(s => s.id === dv.structureId)
-      if (s) updateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
+      const s = draftStructures?.find(s => s.id === dv.structureId)
+      if (s) onUpdateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
+      setDraftStructures(null)
       return
     }
     // finish dragging structure
     if (isDraggingStructure && selectedStructureId) {
       setIsDraggingStructure(false)
       dragOrigin.current = null
-      const s = structures.find(s => s.id === selectedStructureId)
+      const s = draftStructures?.find(s => s.id === selectedStructureId)
       if (s) {
-        updateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
+        onUpdateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
       }
+      setDraftStructures(null)
       return
     }
     setIsPainting(false)
     lastPainted.current = null
   }
 
-  // Load structures and subscribe
-  useEffect(() => {
-    let mounted = true
-    fetchStructuresForYard(yard.id).then(({ data }) => { if (mounted && data) setStructures(data) })
-    const sub = subscribeToStructures(yard.id, (_event, payload) => {
-      const ev = _event
-      if (ev === 'INSERT') setStructures(s => [...s, payload])
-      if (ev === 'UPDATE') setStructures(s => s.map(x => x.id === payload.id ? payload : x))
-      if (ev === 'DELETE') setStructures(s => s.filter(x => x.id !== payload.id))
-    })
-    return () => { mounted = false; if (sub && (sub as any).unsubscribe) (sub as any).unsubscribe() }
-  }, [yard.id])
-
   // keyboard delete listener
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.key === 'Delete' || e.key === 'Backspace') && selectedStructureId) {
-        deleteStructure(selectedStructureId).then(({ error }) => {
+        onDeleteStructure(selectedStructureId).then(({ error }) => {
           if (error) console.error('deleteStructure error', error)
-          else setStructures(s => s.filter(x => x.id !== selectedStructureId))
+          else onSelectStructure(null)
         })
-        setSelectedStructureId(null)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [selectedStructureId])
+  }, [selectedStructureId, onDeleteStructure, onSelectStructure])
 
   const activePaintValue = paintOverlay === 'elevation' ? paintElevation
     : paintOverlay === 'waterflow' ? paintFlow
@@ -414,50 +406,11 @@ export function YardGrid({
 
           {/* Layer 3a: Plant footprint circles */}
             {/* Layer 2.5: Structures */}
-              {structures.map(s => {
-                const geom: any = s.geometry
-                const isSelected = selectedStructureId === s.id
-                const fill = s.color ?? '#e9e9ff'
-                if (geom.shape === 'rectangle') {
-                  const x = geom.anchor.col * CELL_PX
-                  const y = geom.anchor.row * CELL_PX
-                  const w = geom.width * CELL_PX
-                  const h = geom.height * CELL_PX
-                  return (
-                    <g key={s.id} style={{ pointerEvents: 'none' }}>
-                      <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6}
-                        stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
-                    </g>
-                  )
-                }
-                if (geom.shape === 'polygon' || geom.shape === 'polyline') {
-                  const pts = (geom.points as {row:number;col:number}[])
-                  const pointsAttr = pts.map(p => `${p.col * CELL_PX + CELL_PX/2},${p.row * CELL_PX + CELL_PX/2}`).join(' ')
-                  return (
-                    <g key={s.id}>
-                      {geom.shape === 'polygon' ? (
-                        <polygon points={pointsAttr} fill={fill} opacity={0.5}
-                          stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
-                      ) : (
-                        <polyline points={pointsAttr} fill="none" opacity={0.9}
-                          stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
-                      )}
-                      {isSelected && pts.map((p, idx) => (
-                        <circle key={idx} cx={p.col * CELL_PX + CELL_PX/2} cy={p.row * CELL_PX + CELL_PX/2}
-                          r={4} fill="#fff" stroke="#4c1d95" strokeWidth={1}
-                          style={{ cursor: 'move' }}
-                          onMouseDown={(ev: any) => { ev.stopPropagation(); setDraggingVertex({ structureId: s.id, pointIndex: idx }) }} />
-                      ))}
-                    </g>
-                  )
-                }
-                if (geom.shape === 'point') {
-                  const x = geom.point.col * CELL_PX + CELL_PX/2
-                  const y = geom.point.row * CELL_PX + CELL_PX/2
-                  return <circle key={s.id} cx={x} cy={y} r={6} fill={fill} opacity={0.9} stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
-                }
-                return null
-              })}
+              <StructureLayer
+                structures={activeStructures}
+                selectedStructureId={selectedStructureId}
+                onVertexMouseDown={(structureId, pointIndex) => setDraggingVertex({ structureId, pointIndex })}
+              />
 
             {/* Drawing preview */}
               {isDrawingStructure && drawStart.current && drawCurrent && (() => {
