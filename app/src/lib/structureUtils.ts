@@ -1,4 +1,4 @@
-import type { GridPoint, PolylineGeometry, PolygonGeometry, PointGeometry, RectangleGeometry } from '../types'
+import type { GridPoint, PolylineGeometry, PolygonGeometry, PointGeometry, RectangleGeometry, Structure } from '../types'
 
 export function normalizePoint(point: GridPoint) {
   return { x: point.col + 0.5, y: point.row + 0.5 }
@@ -47,6 +47,12 @@ export function structureHitTest(cell: GridPoint, geometry: RectangleGeometry | 
     case 'point': return pointMatches(geometry, cell)
     default: return false
   }
+}
+
+export function structureBlocksPlanting(structure: Structure, cell: GridPoint) {
+  if (!structureHitTest(cell, structure.geometry)) return false
+  const overlap = structure.allowPlantOverlap ?? 'full'
+  return overlap === 'none'
 }
 
 export function geometryToSvgPoints(geometry: PolygonGeometry | PolylineGeometry) {

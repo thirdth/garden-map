@@ -7,6 +7,7 @@ import { elevationColor } from '../lib/elevationColor'
 import { SHADE_CONFIG, shadePatternId } from '../lib/shadePatterns'
 import { getPlantIcon, getPlantColors } from '../lib/plantIcons'
 import { plantState, plantStateColor } from '../lib/plantSeasons'
+import { structureBlocksPlanting } from '../lib/structureUtils'
 import { StructureLayer } from './StructureLayer'
 
 const CELL_PX = 18
@@ -104,6 +105,7 @@ export function YardGrid({
   const [polygonPoints, setPolygonPoints] = useState<{ row: number; col: number }[] | null>(null)
   const [draggingVertex, setDraggingVertex] = useState<{ structureId: string; pointIndex: number } | null>(null)
   const [draftStructures, setDraftStructures] = useState<Structure[] | null>(null)
+  const [hoverCell, setHoverCell] = useState<{ row: number; col: number } | null>(null)
   const [isDraggingStructure, setIsDraggingStructure] = useState(false)
   const dragOrigin = useRef<{ row: number; col: number } | null>(null)
   const origAnchor = useRef<{ row: number; col: number } | null>(null)
@@ -153,7 +155,7 @@ export function YardGrid({
       }
       if (shape === 'point') {
         const geom: any = { shape: 'point', point: { row: cell.row, col: cell.col } }
-        onCreateStructure({ yard_id: yard.id, type: 'other', name: 'Point', geometry: geom }).then(({ error }) => {
+        onCreateStructure({ yard_id: yard.id, type: 'fountain', name: 'Feature', geometry: geom, allowPlantOverlap: 'none' }).then(({ error }) => {
           if (error) console.error('createStructure error', error)
         })
         return
@@ -170,7 +172,10 @@ export function YardGrid({
         if (e.detail === 2) {
           const pts = [...polygonPoints, { row: cell.row, col: cell.col }]
           const geom: any = { shape: shape === 'polygon' ? 'polygon' : 'polyline', points: pts }
-          onCreateStructure({ yard_id: yard.id, type: 'other', name: 'Shape', geometry: geom }).then(({ error }) => {
+          const structureType = shape === 'polyline' ? 'path' : 'other'
+          const structureName = shape === 'polyline' ? 'Path' : 'Shape'
+          const overlapPolicy = shape === 'polyline' ? 'none' : 'full'
+          onCreateStructure({ yard_id: yard.id, type: structureType, name: structureName, geometry: geom, allowPlantOverlap: overlapPolicy }).then(({ error }) => {
             if (error) console.error('createStructure error', error)
           })
           setIsDrawingPolygon(false)
@@ -217,7 +222,11 @@ export function YardGrid({
       }
     }
     if (placingPlant) {
-      if (cell) onPlantCell(cell.row, cell.col)
+      if (cell) {
+        const blocked = activeStructures.some(s => structureBlocksPlanting(s, cell))
+        if (blocked) return
+        onPlantCell(cell.row, cell.col)
+      }
       return
     }
     // Click an existing planting to select it
@@ -239,6 +248,7 @@ export function YardGrid({
 
   function handleMouseMove(e: React.MouseEvent) {
     const cell = getCellFromEvent(e)
+    setHoverCell(cell)
     // Structure drawing preview
     if (structureMode && isDrawingStructure) {
       if (!cell) return
@@ -346,7 +356,8 @@ export function YardGrid({
     : paintOverlay === 'shade' ? paintShade : null
   const canPaint = paintOverlay !== null && activePaintValue !== null
   const isErasing = paintOverlay !== null && activePaintValue === null
-  const cursor = placingPlant ? 'copy' : canPaint ? 'crosshair' : isErasing ? 'cell' : 'default'
+  const plantBlocked = placingPlant && hoverCell !== null && activeStructures.some(s => structureBlocksPlanting(s, hoverCell))
+  const cursor = plantBlocked ? 'not-allowed' : placingPlant ? 'copy' : canPaint ? 'crosshair' : isErasing ? 'cell' : 'default'
 
   return (
     <div className="overflow-auto flex-1 p-4">
@@ -359,7 +370,7 @@ export function YardGrid({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={() => { handleMouseUp(); setHoverCell(null) }}
       >
         {colLabels.map(c => (
           <text key={c} x={40 + c * CELL_PX} y={14} textAnchor="middle" fontSize={9} fill="#9ca3af">
@@ -411,6 +422,15 @@ export function YardGrid({
                 selectedStructureId={selectedStructureId}
                 onVertexMouseDown={(structureId, pointIndex) => setDraggingVertex({ structureId, pointIndex })}
               />
+
+              {plantBlocked && hoverCell && (
+                <g>
+                  <rect x={hoverCell.col * CELL_PX} y={hoverCell.row * CELL_PX} width={CELL_PX} height={CELL_PX}
+                    fill="rgba(239, 68, 68, 0.35)" stroke="#dc2626" strokeWidth={1} />
+                  <text x={hoverCell.col * CELL_PX + CELL_PX / 2} y={hoverCell.row * CELL_PX + CELL_PX / 2 + 4}
+                    textAnchor="middle" fontSize={10} fill="#dc2626" fontWeight="700">NO</text>
+                </g>
+              )}
 
             {/* Drawing preview */}
               {isDrawingStructure && drawStart.current && drawCurrent && (() => {
