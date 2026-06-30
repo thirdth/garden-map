@@ -22,6 +22,7 @@ type PaintOverlay = 'elevation' | 'waterflow' | 'shade' | null
 interface Props {
   yard: Yard
   structureMode?: boolean
+  shapeType?: 'rectangle' | 'polygon' | 'polyline' | 'point'
   showElevation: boolean
   elevations: ElevationMap
   paintElevation: number | null
@@ -75,7 +76,7 @@ function footprintRadius(spreadMaxFt: number | null, cellSizeIn: number): number
 }
 
 export function YardGrid({
-  yard, structureMode = false, showElevation, elevations, paintElevation,
+  yard, structureMode = false, shapeType = 'rectangle', showElevation, elevations, paintElevation,
   showWaterFlow, flowMap, paintFlow,
   showShade, shadeMap, paintShade,
   paintOverlay, onPaintCell,
@@ -93,6 +94,9 @@ export function YardGrid({
   const [isDrawingStructure, setIsDrawingStructure] = useState(false)
   const drawStart = useRef<{ row: number; col: number } | null>(null)
   const [drawCurrent, setDrawCurrent] = useState<{ row: number; col: number } | null>(null)
+  const [isDrawingPolygon, setIsDrawingPolygon] = useState(false)
+  const [polygonPoints, setPolygonPoints] = useState<{ row: number; col: number }[] | null>(null)
+  const [draggingVertex, setDraggingVertex] = useState<{ structureId: string; pointIndex: number } | null>(null)
   const [selectedStructureId, setSelectedStructureId] = useState<string | null>(null)
   const [isDraggingStructure, setIsDraggingStructure] = useState(false)
   const dragOrigin = useRef<{ row: number; col: number } | null>(null)
@@ -115,14 +119,59 @@ export function YardGrid({
     return { row, col }
   }
 
+  // point-in-polygon ray-casting, x,y are in same coordinate space as points (here cell centers)
+  function pointInPolygon(x: number, y: number, points: { x: number; y: number }[]) {
+    let inside = false
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const xi = points[i].x, yi = points[i].y
+      const xj = points[j].x, yj = points[j].y
+      const intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+      if (intersect) inside = !inside
+    }
+    return inside
+  }
+
   function handleMouseDown(e: React.MouseEvent) {
     const cell = getCellFromEvent(e)
     // Structure drawing mode takes precedence
     if (structureMode) {
-      if (cell) {
+      if (!cell) return
+      const shape = shapeType ?? 'rectangle'
+      if (shape === 'rectangle') {
         setIsDrawingStructure(true)
         drawStart.current = cell
         setDrawCurrent(cell)
+        return
+      }
+      if (shape === 'point') {
+        const geom: any = { shape: 'point', point: { row: cell.row, col: cell.col } }
+        createStructure({ yard_id: yard.id, type: 'other', name: 'Point', geometry: geom }).then(({ data, error }) => {
+          if (error) console.error('createStructure error', error)
+          else if (data) setStructures(s => [...s, data])
+        })
+        return
+      }
+      // polygon or polyline
+      if (!isDrawingPolygon) {
+        setIsDrawingPolygon(true)
+        setPolygonPoints([{ row: cell.row, col: cell.col }])
+        return
+      }
+      // append point
+      if (isDrawingPolygon && polygonPoints) {
+        // double-click finishes
+        if (e.detail === 2) {
+          const pts = [...polygonPoints, { row: cell.row, col: cell.col }]
+          const geom: any = { shape: shape === 'polygon' ? 'polygon' : 'polyline', points: pts }
+          createStructure({ yard_id: yard.id, type: 'other', name: 'Shape', geometry: geom }).then(({ data, error }) => {
+            if (error) console.error('createStructure error', error)
+            else if (data) setStructures(s => [...s, data])
+          })
+          setIsDrawingPolygon(false)
+          setPolygonPoints(null)
+        } else {
+          setPolygonPoints(p => p ? [...p, { row: cell.row, col: cell.col }] : [{ row: cell.row, col: cell.col }])
+        }
       }
       return
     }
@@ -136,6 +185,16 @@ export function YardGrid({
           const bottom = top + g.height - 1
           const right = left + g.width - 1
           return cell.row >= top && cell.row <= bottom && cell.col >= left && cell.col <= right
+        }
+        // polygon hit-test: point-in-polygon
+        if (g.shape === 'polygon') {
+          const pts = g.points as {row:number;col:number}[]
+          if (pointInPolygon(cell.col + 0.5, cell.row + 0.5, pts.map(p=>({x:p.col+0.5,y:p.row+0.5})))) return true
+        }
+        // polyline: hit if click on a vertex
+        if (g.shape === 'polyline') {
+          const pts = g.points as {row:number;col:number}[]
+          if (pts.some(p => p.row === cell.row && p.col === cell.col)) return true
         }
         return false
       })
@@ -177,6 +236,20 @@ export function YardGrid({
     if (structureMode && isDrawingStructure) {
       if (!cell) return
       setDrawCurrent(cell)
+      return
+    }
+    // dragging vertex
+    if (draggingVertex) {
+      if (!cell) return
+      setStructures(prev => prev.map(s => {
+        if (s.id !== draggingVertex.structureId) return s
+        const g: any = s.geometry
+        if (g.shape === 'polygon' || g.shape === 'polyline') {
+          const pts = g.points.map((p:any,i:number)=> i===draggingVertex.pointIndex ? { row: cell.row, col: cell.col } : p)
+          return { ...s, geometry: { ...g, points: pts } }
+        }
+        return s
+      }))
       return
     }
     // dragging structure
@@ -224,6 +297,14 @@ export function YardGrid({
             else if (data) setStructures(s => [...s, data])
           })
       }
+      return
+    }
+    // finish dragging vertex
+    if (draggingVertex) {
+      const dv = draggingVertex
+      setDraggingVertex(null)
+      const s = structures.find(s => s.id === dv.structureId)
+      if (s) updateStructure(s.id, { geometry: s.geometry }).then(({ error }) => { if (error) console.error('updateStructure error', error) })
       return
     }
     // finish dragging structure
@@ -333,34 +414,71 @@ export function YardGrid({
 
           {/* Layer 3a: Plant footprint circles */}
             {/* Layer 2.5: Structures */}
-            {structures.map(s => {
-              const geom: any = s.geometry
-              if (geom.shape === 'rectangle') {
-                const x = geom.anchor.col * CELL_PX
-                const y = geom.anchor.row * CELL_PX
-                const w = geom.width * CELL_PX
-                const h = geom.height * CELL_PX
-                const fill = s.color ?? '#e9e9ff'
+              {structures.map(s => {
+                const geom: any = s.geometry
                 const isSelected = selectedStructureId === s.id
-                return (
-                  <g key={s.id} style={{ pointerEvents: 'none' }}>
-                    <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6}
-                      stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
-                  </g>
-                )
-              }
-              return null
-            })}
+                const fill = s.color ?? '#e9e9ff'
+                if (geom.shape === 'rectangle') {
+                  const x = geom.anchor.col * CELL_PX
+                  const y = geom.anchor.row * CELL_PX
+                  const w = geom.width * CELL_PX
+                  const h = geom.height * CELL_PX
+                  return (
+                    <g key={s.id} style={{ pointerEvents: 'none' }}>
+                      <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6}
+                        stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
+                    </g>
+                  )
+                }
+                if (geom.shape === 'polygon' || geom.shape === 'polyline') {
+                  const pts = (geom.points as {row:number;col:number}[])
+                  const pointsAttr = pts.map(p => `${p.col * CELL_PX + CELL_PX/2},${p.row * CELL_PX + CELL_PX/2}`).join(' ')
+                  return (
+                    <g key={s.id}>
+                      {geom.shape === 'polygon' ? (
+                        <polygon points={pointsAttr} fill={fill} opacity={0.5}
+                          stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
+                      ) : (
+                        <polyline points={pointsAttr} fill="none" opacity={0.9}
+                          stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
+                      )}
+                      {isSelected && pts.map((p, idx) => (
+                        <circle key={idx} cx={p.col * CELL_PX + CELL_PX/2} cy={p.row * CELL_PX + CELL_PX/2}
+                          r={4} fill="#fff" stroke="#4c1d95" strokeWidth={1}
+                          style={{ cursor: 'move' }}
+                          onMouseDown={(ev: any) => { ev.stopPropagation(); setDraggingVertex({ structureId: s.id, pointIndex: idx }) }} />
+                      ))}
+                    </g>
+                  )
+                }
+                if (geom.shape === 'point') {
+                  const x = geom.point.col * CELL_PX + CELL_PX/2
+                  const y = geom.point.row * CELL_PX + CELL_PX/2
+                  return <circle key={s.id} cx={x} cy={y} r={6} fill={fill} opacity={0.9} stroke={isSelected ? '#4c1d95' : '#6366f1'} strokeWidth={isSelected ? 2 : 1} />
+                }
+                return null
+              })}
 
             {/* Drawing preview */}
-            {isDrawingStructure && drawStart.current && drawCurrent && (() => {
-              const top = Math.min(drawStart.current.row, drawCurrent.row)
-              const left = Math.min(drawStart.current.col, drawCurrent.col)
-              const w = (Math.abs(drawCurrent.col - drawStart.current.col) + 1) * CELL_PX
-              const h = (Math.abs(drawCurrent.row - drawStart.current.row) + 1) * CELL_PX
-              return <rect x={left * CELL_PX} y={top * CELL_PX} width={w} height={h}
-                fill="#a78bfa" opacity={0.35} stroke="#7c3aed" strokeDasharray="4 2" />
-            })()}
+              {isDrawingStructure && drawStart.current && drawCurrent && (() => {
+                const top = Math.min(drawStart.current.row, drawCurrent.row)
+                const left = Math.min(drawStart.current.col, drawCurrent.col)
+                const w = (Math.abs(drawCurrent.col - drawStart.current.col) + 1) * CELL_PX
+                const h = (Math.abs(drawCurrent.row - drawStart.current.row) + 1) * CELL_PX
+                return <rect x={left * CELL_PX} y={top * CELL_PX} width={w} height={h}
+                  fill="#a78bfa" opacity={0.35} stroke="#7c3aed" strokeDasharray="4 2" />
+              })()}
+
+              {/* Polygon/polyline drawing preview */}
+              {isDrawingPolygon && polygonPoints && (
+                <g>
+                  <polyline points={polygonPoints.map(p => `${p.col * CELL_PX + CELL_PX/2},${p.row * CELL_PX + CELL_PX/2}`).join(' ')}
+                    fill="none" stroke="#7c3aed" strokeWidth={1.5} strokeDasharray="4 2" />
+                  {polygonPoints.map((p, i) => (
+                    <circle key={i} cx={p.col * CELL_PX + CELL_PX/2} cy={p.row * CELL_PX + CELL_PX/2} r={3} fill="#7c3aed" />
+                  ))}
+                </g>
+              )}
           {showPlants && plantings.map(p => {
             const r = footprintRadius(p.spread_max_ft, cellIn)
             if (r < CELL_PX / 2) return null

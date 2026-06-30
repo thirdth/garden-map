@@ -86,6 +86,7 @@ export function GardenApp({ session }: Props) {
   }
 
   const [structureMode, setStructureMode] = useState(false)
+  const [structureShape, setStructureShape] = useState<'rectangle' | 'polygon' | 'polyline' | 'point'>('rectangle')
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
@@ -181,6 +182,17 @@ export function GardenApp({ session }: Props) {
                     Structure
                   </button>
 
+                  {structureMode && (
+                    <div className="flex items-center gap-1">
+                      {(['rectangle','polygon','polyline','point'] as const).map(s => (
+                        <button key={s} onClick={() => setStructureShape(s)}
+                          className={`px-2 py-1 rounded text-xs ${structureShape===s ? 'bg-indigo-100 text-indigo-800' : 'text-stone-500 hover:bg-stone-50'}`}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="h-5 w-px bg-stone-200" />
                   <SeasonSlider month={currentMonth} onChange={setCurrentMonth} />
 
@@ -238,6 +250,7 @@ export function GardenApp({ session }: Props) {
 
                 {currentYard && (
                   <YardGrid
+                    shapeType={structureShape}
                     structureMode={structureMode}
                     yard={currentYard}
                     showElevation={showElevation} elevations={elevations} paintElevation={paintElevation}
