@@ -97,3 +97,59 @@ export interface Planting {
   deciduous_fall_color: string[] | null
   life_cycle: string | null
 }
+
+// Structures: geometry and metadata for drawn objects
+export type StructureKind = 'patio' | 'shed' | 'pergola' | 'path' | 'fountain' | 'deck' | 'other'
+export type ShapeType = 'rectangle' | 'polygon' | 'polyline' | 'point'
+export type CompassSide = 'N' | 'E' | 'S' | 'W'
+
+export interface GridPoint {
+  row: number
+  col: number
+}
+
+export interface RectangleGeometry {
+  shape: 'rectangle'
+  anchor: GridPoint
+  width: number
+  height: number
+  rotation?: number
+}
+
+export interface PolygonGeometry {
+  shape: 'polygon'
+  points: GridPoint[]
+}
+
+export interface PolylineGeometry {
+  shape: 'polyline'
+  points: GridPoint[]
+  strokeWidth?: number
+}
+
+export interface PointGeometry {
+  shape: 'point'
+  point: GridPoint
+}
+
+export type StructureGeometry = RectangleGeometry | PolygonGeometry | PolylineGeometry | PointGeometry
+
+export type PlantOverlap = 'none' | 'partial' | 'full'
+
+export interface Structure {
+  id: string
+  yard_id: string
+  type: StructureKind
+  name?: string
+  geometry: StructureGeometry
+  zIndex: number
+  color?: string
+  pattern?: string
+  allowPlantOverlap?: PlantOverlap
+  growUpSides?: CompassSide[]
+  notes?: string
+  created_at?: string
+  updated_at?: string
+  created_by?: string
+  meta?: Record<string, any>
+}

@@ -41,14 +41,16 @@ export async function deleteStructure(id: string) {
 
 // Basic realtime subscription helper. Returns the subscription object; caller should unsubscribe when done.
 export function subscribeToStructures(yard_id: string, cb: (event: string, payload: any) => void) {
-  const insertSub = supabase
+  // supabase-js types for realtime subscription are a bit strict; cast to any to avoid build errors
+  const anySupabase: any = supabase
+  const sub = anySupabase
     .from(`structures:yard_id=eq.${yard_id}`)
-    .on('INSERT', (payload) => cb('INSERT', payload.new))
-    .on('UPDATE', (payload) => cb('UPDATE', payload.new))
-    .on('DELETE', (payload) => cb('DELETE', payload.old))
+    .on('INSERT', (payload: any) => cb('INSERT', payload.new))
+    .on('UPDATE', (payload: any) => cb('UPDATE', payload.new))
+    .on('DELETE', (payload: any) => cb('DELETE', payload.old))
     .subscribe()
 
-  return insertSub
+  return sub
 }
 
 export default {

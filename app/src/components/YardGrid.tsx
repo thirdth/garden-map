@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react'
-import type { Structure } from '../types'
+import type { Structure, RectangleGeometry } from '../types'
 import { fetchStructuresForYard, createStructure, subscribeToStructures } from '../lib/structures'
 import { Yard, ShadeMap, ShadeValue, Planting } from '../types'
 import { ElevationMap, cellKey } from '../hooks/useElevation'
@@ -175,13 +175,13 @@ export function YardGrid({
       drawStart.current = null
       setDrawCurrent(null)
       if (start && end) {
-        const top = Math.min(start.row, end.row)
-        const left = Math.min(start.col, end.col)
-        const height = Math.abs(end.row - start.row) + 1
-        const width = Math.abs(end.col - start.col) + 1
-        // create a rectangle structure
-        const geom = { shape: 'rectangle', anchor: { row: top, col: left }, width, height }
-        createStructure({ yard_id: yard.id, type: 'patio', name: 'New structure', geometry: geom, allow_plant_overlap: 'full' })
+      const top = Math.min(start.row, end.row)
+      const left = Math.min(start.col, end.col)
+      const height = Math.abs(end.row - start.row) + 1
+      const width = Math.abs(end.col - start.col) + 1
+      // create a rectangle structure
+      const geom: RectangleGeometry = { shape: 'rectangle', anchor: { row: top, col: left }, width, height }
+        createStructure({ yard_id: yard.id, type: 'patio', name: 'New structure', geometry: geom, allowPlantOverlap: 'full' })
           .then(({ data, error }) => {
             if (error) console.error('createStructure error', error)
             else if (data) setStructures(s => [...s, data])
