@@ -1,6 +1,42 @@
 import { supabase } from './supabase'
 import type { Structure } from '../types'
 
+// Helpers to map between client camelCase and DB snake_case column names
+function toDbShape(payload: Partial<Structure>): Record<string, any> {
+  const p: Record<string, any> = { ...payload }
+  if (p.zIndex !== undefined) {
+    p.z_index = p.zIndex
+    delete p.zIndex
+  }
+  if (p.allowPlantOverlap !== undefined) {
+    p.allow_plant_overlap = p.allowPlantOverlap
+    delete p.allowPlantOverlap
+  }
+  if (p.growUpSides !== undefined) {
+    p.grow_up_sides = p.growUpSides
+    delete p.growUpSides
+  }
+  return p
+}
+
+function fromDbShape(row: Record<string, any>): Structure {
+  if (!row) return row as any
+  const r: Record<string, any> = { ...row }
+  if (r.z_index !== undefined) {
+    r.zIndex = r.z_index
+    delete r.z_index
+  }
+  if (r.allow_plant_overlap !== undefined) {
+    r.allowPlantOverlap = r.allow_plant_overlap
+    delete r.allow_plant_overlap
+  }
+  if (r.grow_up_sides !== undefined) {
+    r.growUpSides = r.grow_up_sides
+    delete r.grow_up_sides
+  }
+  return r as Structure
+}
+
 export async function fetchStructuresForYard(yard_id: string) {
   const { data, error } = await supabase
     .from('structures')
@@ -8,26 +44,31 @@ export async function fetchStructuresForYard(yard_id: string) {
     .eq('yard_id', yard_id)
     .order('z_index', { ascending: true })
 
-  return { data: data as Structure[] | null, error }
+  const mapped = (data as any[] | null)?.map(fromDbShape) ?? null
+  return { data: mapped as Structure[] | null, error }
 }
 
 export async function createStructure(payload: Partial<Structure>) {
+  const dbPayload = toDbShape(payload)
   const { data, error } = await supabase
     .from('structures')
-    .insert([payload])
+    .insert([dbPayload])
     .select()
 
-  return { data: (data as Structure[] | null)?.[0] ?? null, error }
+  const row = (data as any[] | null)?.[0] ?? null
+  return { data: row ? fromDbShape(row) : null, error }
 }
 
 export async function updateStructure(id: string, updates: Partial<Structure>) {
+  const dbUpdates = toDbShape(updates)
   const { data, error } = await supabase
     .from('structures')
-    .update(updates)
+    .update(dbUpdates)
     .eq('id', id)
     .select()
 
-  return { data: (data as Structure[] | null)?.[0] ?? null, error }
+  const row = (data as any[] | null)?.[0] ?? null
+  return { data: row ? fromDbShape(row) : null, error }
 }
 
 export async function deleteStructure(id: string) {
