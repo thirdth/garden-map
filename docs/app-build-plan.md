@@ -264,6 +264,7 @@ Footprints are visual only — overlapping is allowed (tree canopy over groundco
 | Plant detail view | ✅ Done | Click-to-edit label/date/notes, remove |
 | Plant browser sidebar | ✅ Done | Search + type filter |
 | Structures DB + realtime | ✅ Done | Table + supabase channel subscriptions |
+| Structure overlap blocking | ✅ Done | Prevent plant placement on no-overlap structures; show blocked hover state |
 
 ---
 
@@ -294,6 +295,7 @@ When a planting is placed inside a structure with `type = 'raised_bed'` (or any 
 - Point mode: click to place (fountain, birdbath, fire pit)
 - Selection handles: click placed structure to show resize/rotate/delete controls
 - Structure palette: pick type → sets default color/pattern hint
+- Current planting rule: structures with `allowPlantOverlap = 'none'` block plant placement on overlapping cells, with hover feedback in the grid.
 
 **Rendering (`YardGrid.tsx`):**
 - Render area structures (patio, deck, path, pond) below plantings
