@@ -1,4 +1,6 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
+import type { Structure } from '../types'
+import { fetchStructuresForYard, createStructure, subscribeToStructures } from '../lib/structures'
 import { Yard, ShadeMap, ShadeValue, Planting } from '../types'
 import { ElevationMap, cellKey } from '../hooks/useElevation'
 import { WaterFlowMap, WaterFlowDir } from '../hooks/useWaterFlow'
@@ -19,6 +21,7 @@ type PaintOverlay = 'elevation' | 'waterflow' | 'shade' | null
 
 interface Props {
   yard: Yard
+  structureMode?: boolean
   showElevation: boolean
   elevations: ElevationMap
   paintElevation: number | null
@@ -72,7 +75,7 @@ function footprintRadius(spreadMaxFt: number | null, cellSizeIn: number): number
 }
 
 export function YardGrid({
-  yard, showElevation, elevations, paintElevation,
+  yard, structureMode = false, showElevation, elevations, paintElevation,
   showWaterFlow, flowMap, paintFlow,
   showShade, shadeMap, paintShade,
   paintOverlay, onPaintCell,
@@ -85,6 +88,11 @@ export function YardGrid({
   const svgRef = useRef<SVGSVGElement>(null)
   const [isPainting, setIsPainting] = useState(false)
   const lastPainted = useRef<string | null>(null)
+  // Structures
+  const [structures, setStructures] = useState<Structure[]>([])
+  const [isDrawingStructure, setIsDrawingStructure] = useState(false)
+  const drawStart = useRef<{ row: number; col: number } | null>(null)
+  const [drawCurrent, setDrawCurrent] = useState<{ row: number; col: number } | null>(null)
 
   const ftCells = 12 / cellIn
   const colLabels: number[] = []
@@ -104,6 +112,19 @@ export function YardGrid({
   }
 
   function handleMouseDown(e: React.MouseEvent) {
+    // Structure drawing mode takes precedence
+    if ((arguments[0] as any)?.currentTarget && (e as any) && (e as any).nativeEvent && (e as any)) {}
+    // Note: parent component toggles `structureMode` prop to enable drawing
+    // We get structureMode from props via closure
+    if (structureMode) {
+      const cell = getCellFromEvent(e)
+      if (cell) {
+        setIsDrawingStructure(true)
+        drawStart.current = cell
+        setDrawCurrent(cell)
+      }
+      return
+    }
     if (placingPlant) {
       const cell = getCellFromEvent(e)
       if (cell) onPlantCell(cell.row, cell.col)
@@ -129,6 +150,13 @@ export function YardGrid({
   }
 
   function handleMouseMove(e: React.MouseEvent) {
+    // Structure drawing
+    if (structureMode && isDrawingStructure) {
+      const cell = getCellFromEvent(e)
+      if (!cell) return
+      setDrawCurrent(cell)
+      return
+    }
     if (!isPainting || !paintOverlay) return
     const cell = getCellFromEvent(e)
     if (!cell) return
@@ -139,9 +167,44 @@ export function YardGrid({
   }
 
   function handleMouseUp() {
+    // Structure drawing finish
+    if (structureMode && isDrawingStructure) {
+      setIsDrawingStructure(false)
+      const start = drawStart.current
+      const end = drawCurrent
+      drawStart.current = null
+      setDrawCurrent(null)
+      if (start && end) {
+        const top = Math.min(start.row, end.row)
+        const left = Math.min(start.col, end.col)
+        const height = Math.abs(end.row - start.row) + 1
+        const width = Math.abs(end.col - start.col) + 1
+        // create a rectangle structure
+        const geom = { shape: 'rectangle', anchor: { row: top, col: left }, width, height }
+        createStructure({ yard_id: yard.id, type: 'patio', name: 'New structure', geometry: geom, allow_plant_overlap: 'full' })
+          .then(({ data, error }) => {
+            if (error) console.error('createStructure error', error)
+            else if (data) setStructures(s => [...s, data])
+          })
+      }
+      return
+    }
     setIsPainting(false)
     lastPainted.current = null
   }
+
+  // Load structures and subscribe
+  useEffect(() => {
+    let mounted = true
+    fetchStructuresForYard(yard.id).then(({ data }) => { if (mounted && data) setStructures(data) })
+    const sub = subscribeToStructures(yard.id, (_event, payload) => {
+      const ev = _event
+      if (ev === 'INSERT') setStructures(s => [...s, payload])
+      if (ev === 'UPDATE') setStructures(s => s.map(x => x.id === payload.id ? payload : x))
+      if (ev === 'DELETE') setStructures(s => s.filter(x => x.id !== payload.id))
+    })
+    return () => { mounted = false; if (sub && (sub as any).unsubscribe) (sub as any).unsubscribe() }
+  }, [yard.id])
 
   const activePaintValue = paintOverlay === 'elevation' ? paintElevation
     : paintOverlay === 'waterflow' ? paintFlow
@@ -207,6 +270,33 @@ export function YardGrid({
           })}
 
           {/* Layer 3a: Plant footprint circles */}
+            {/* Layer 2.5: Structures */}
+            {structures.map(s => {
+              const geom: any = s.geometry
+              if (geom.shape === 'rectangle') {
+                const x = geom.anchor.col * CELL_PX
+                const y = geom.anchor.row * CELL_PX
+                const w = geom.width * CELL_PX
+                const h = geom.height * CELL_PX
+                const fill = s.color ?? '#e9e9ff'
+                return (
+                  <g key={s.id} style={{ pointerEvents: 'none' }}>
+                    <rect x={x} y={y} width={w} height={h} fill={fill} opacity={0.6} stroke="#6366f1" />
+                  </g>
+                )
+              }
+              return null
+            })}
+
+            {/* Drawing preview */}
+            {isDrawingStructure && drawStart.current && drawCurrent && (() => {
+              const top = Math.min(drawStart.current.row, drawCurrent.row)
+              const left = Math.min(drawStart.current.col, drawCurrent.col)
+              const w = (Math.abs(drawCurrent.col - drawStart.current.col) + 1) * CELL_PX
+              const h = (Math.abs(drawCurrent.row - drawStart.current.row) + 1) * CELL_PX
+              return <rect x={left * CELL_PX} y={top * CELL_PX} width={w} height={h}
+                fill="#a78bfa" opacity={0.35} stroke="#7c3aed" strokeDasharray="4 2" />
+            })()}
           {showPlants && plantings.map(p => {
             const r = footprintRadius(p.spread_max_ft, cellIn)
             if (r < CELL_PX / 2) return null

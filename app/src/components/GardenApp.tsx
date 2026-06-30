@@ -85,6 +85,8 @@ export function GardenApp({ session }: Props) {
     return `${activeColor} opacity-60`
   }
 
+  const [structureMode, setStructureMode] = useState(false)
+
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       <header className="bg-white border-b border-stone-200 px-4 py-2.5 flex items-center justify-between shrink-0">
@@ -174,6 +176,11 @@ export function GardenApp({ session }: Props) {
                     <Sun size={14} /> Shade
                   </button>
 
+                  <button onClick={() => setStructureMode(s => !s)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${structureMode ? 'bg-indigo-50 text-indigo-700 border-indigo-200 ring-2 ring-indigo-300 ring-offset-1' : 'text-stone-500 border-stone-200 hover:bg-stone-50'}`}>
+                    Structure
+                  </button>
+
                   <div className="h-5 w-px bg-stone-200" />
                   <SeasonSlider month={currentMonth} onChange={setCurrentMonth} />
 
@@ -231,6 +238,7 @@ export function GardenApp({ session }: Props) {
 
                 {currentYard && (
                   <YardGrid
+                    structureMode={structureMode}
                     yard={currentYard}
                     showElevation={showElevation} elevations={elevations} paintElevation={paintElevation}
                     showWaterFlow={showWaterFlow} flowMap={flowMap} paintFlow={paintFlow}
